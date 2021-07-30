@@ -2,6 +2,8 @@ import os
 import hashlib
 import random
 import Crypto.PublicKey.RSA
+import csv
+from datetime import datetime
 
 SUB_DICTIONARY = u'1234567890'
 
@@ -29,8 +31,8 @@ class RingSign:
             self.keys.append(buf)
 
     @staticmethod
-    def get_rsa_encrypted_data(data, keys):
-        result = pow(data, keys.e, keys.n)
+    def get_rsa_encrypted_data(data, key_e, key_n):
+        result = pow(data, key_e, key_n)
         return result
 
     @staticmethod
@@ -53,6 +55,22 @@ class RingSign:
         hash_message = int(hashlib.sha1(message.encode('utf-8')).hexdigest(), 16)
         return hash_message
 
+    def export_data_signatures_to_CSV(self):
+        current_time = datetime.now()
+        filename = 'data_signatures_' + current_time.strftime("%d-%m-%Y--%H-%M-%S") + '.csv'
+        with open(filename, 'w', newline='') as file:
+            writer = csv.writer(file, dialect='excel')
+            for item in self.data_signatures:
+                writer.writerow(item)
+        return filename
+
+    def import_data_signatures_from_CSV(self, filename):
+        self.data_signatures.clear()
+        with open(filename, 'r', newline='') as file:
+            reader = csv.reader(file, dialect='excel')
+            for item in reader:
+                self.data_signatures.append([int(element) for element in item])
+
     def __init__(self):
         # список ключей
         self.keys = list()
@@ -62,10 +80,10 @@ class RingSign:
         self.l = 0
         # максимальное значение в блоке случайных данных
         self.q = 0
+        # сигнатура подписей
+        self.data_signatures = list()
 
     def get_sign(self, message):
-        # структура данных для возврата
-        output_data = list()
         # хэшированное сообщение
         hash_message = self.get_hash_message(message)
         # буфер для данных, получаемых в процессе работы
@@ -79,7 +97,7 @@ class RingSign:
         for i in range(0, self.n - 1):
             # блок случайных данных
             x = random.randint(0, self.q)
-            encrypted_x = self.get_rsa_encrypted_data(x, self.keys[i])
+            encrypted_x = self.get_rsa_encrypted_data(x, self.keys[i].e, self.keys[i].n)
             u = u ^ encrypted_x
             u = int(self.get_sub(str(u), hash_message))
             s[i] = [x, u, self.keys[i].e, self.keys[i].n]
@@ -88,21 +106,21 @@ class RingSign:
         u_dec = u_dec ^ u  # XOR для получения g(x)
         decrypted_x = self.get_rsa_decrypted_data(u_dec, self.keys[self.n - 1])
         s[self.n - 1] = [decrypted_x, v, self.keys[self.n - 1].e, self.keys[self.n - 1].n]
+        # добавляем данные из буфера в список сигнатур подписей
         for item in s:
-            output_data.append(item)
-        return output_data
+            self.data_signatures.append(item)
 
     def verify_sign(self, sign, message_for_check):
         # получаем из подписи сообщение
         hash_message = self.get_hash_message(message_for_check)
         # magic getting v
-        v = sign[1][1]
+        number_v = len(sign) - 1
+        v = sign[number_v][1]
         u = v
         # основной цикл
-        for i in range(0, self.n):
-            # блок случайных данных, полученный из подписи
+        for i in range(0, 2):
             x = sign[i][0]
-            encrypted_x = self.get_rsa_encrypted_data(x, self.keys[i - 1])
+            encrypted_x = self.get_rsa_encrypted_data(x, sign[i][2], sign[i][3])
             u = u ^ encrypted_x
             u = int(self.get_sub(str(u), hash_message))
         if u == v:
